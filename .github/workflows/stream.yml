@@ -15,7 +15,7 @@ jobs:
           pip install gdown
 
       - name: Download video
-        run: gdown --id 1XDNsOoy4ktnXW_Ivy8X6OTsxayKOMLjK -O video.mp4
+        run: gdown 1XDNsOoy4ktnXW_Ivy8X6OTsxayKOMLjK -O video.mp4
 
       - name: Stream to YouTube
         env:
