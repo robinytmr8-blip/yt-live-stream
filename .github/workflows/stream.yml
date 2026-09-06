@@ -1,0 +1,29 @@
+name: YouTube Live Stream
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install gdown
+
+      - name: Download video
+        run: gdown --id 1XDNsOoy4ktnXW_Ivy8X6OTsxayKOMLjK -O video.mp4
+
+      - name: Stream to YouTube
+        env:
+          STREAM_KEY: ${{ secrets.STREAM_KEY }}
+        run: |
+          ffmpeg -re -stream_loop -1 -i video.mp4 \
+            -c:v libx264 -preset veryfast \
+            -b:v 3500k -maxrate 4500k -bufsize 7000k \
+            -g 60 -keyint_min 60 -pix_fmt yuv420p \
+            -c:a aac -b:a 128k -ar 44100 \
+            -f flv rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY
