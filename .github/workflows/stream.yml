@@ -15,7 +15,7 @@ jobs:
           pip install gdown
 
       - name: Download video
-        run: gdown 1ppubB4jDMz2hvlLG2ATLC0HA96jp_9B3 -O raw.mp4
+        run: gdown 1CJbmFWKQC_SXN48levb3Ye5NRSh-0JCl -O raw.mp4
 
       - name: Prepare video
         run: |
