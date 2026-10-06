@@ -6,27 +6,21 @@ on:
 jobs:
   stream:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 355
     steps:
+      - name: Start time
+        run: echo "JOB_START=$(date +%s)" >> $GITHUB_ENV
+
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install gdown edge-tts
+          sudo apt-get install -y ffmpeg
+          pip install gdown
 
       - name: Download video
-        run: gdown 1eJyqZ_6jEE2OpAcqgsGcfoaYLa7I2K9o -O raw.mp4
+        run: gdown 1-6dr_tzvCa1KerSiMjaXZEx32iyEIDf4 -O raw.mp4
 
-      - name: Make subscribe voice (every 60s)
-        run: |
-          edge-tts --voice en-US-AriaNeural --rate=-8% \
-            --text "Hey friends! If you are enjoying this live stream, please subscribe to my YouTube channel, and press the bell icon. Thank you!" \
-            --write-media voice.mp3
-          ffmpeg -y -i voice.mp3 \
-            -af "loudnorm=I=-14:TP=-1.5:LRA=7,aresample=44100,adelay=8000:all=1,apad=whole_dur=60" \
-            -ac 2 voice_loop.wav
-
-      - name: Prepare video
+      - name: Prepare HD shorts video
         run: |
           # video-te audio na thakle nishobdo audio joga hobe
           if [ -z "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 raw.mp4)" ]; then
@@ -35,34 +29,32 @@ jobs:
             mv raw_a.mp4 raw.mp4
           fi
 
-          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 raw.mp4)
-          ffmpeg -y -stream_loop -1 -i voice_loop.wav -t "$DUR" voice_full.wav
+          ffmpeg -y -i raw.mp4 \
+            -filter_complex "[0:v]fps=30,split=2[bg][fg];[bg]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:2,scale=1080:1920[b];[fg]scale=1080:1920:force_original_aspect_ratio=decrease[f];[b][f]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]" \
+            -map "[v]" -map 0:a \
+            -af "loudnorm=I=-16:TP=-1.5:LRA=11" \
+            -c:v libx264 -preset veryfast -profile:v high \
+            -b:v 4000k -maxrate 4500k -bufsize 8000k \
+            -g 60 -keyint_min 60 -sc_threshold 0 \
+            -c:a aac -b:a 160k -ar 44100 \
+            video.mp4
 
-          FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
-          ffmpeg -y -i raw.mp4 -i voice_full.wav \
-            -filter_complex "[0:v]fps=30,scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,drawtext=fontfile=$FONT:text='Tania':fontcolor=white@0.8:fontsize=32:x=w-tw-20:y=30:shadowcolor=black:shadowx=2:shadowy=2,drawtext=fontfile=$FONT:text='Subscribe My YouTube Channel':fontcolor=white:fontsize=38:x=(w-tw)/2:y=h-th-90:box=1:boxcolor=black@0.45:boxborderw=14:shadowcolor=black:shadowx=2:shadowy=2[v];[0:a]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100,aformat=channel_layouts=stereo[music];[1:a]asplit=2[sc][vo];[music][sc]sidechaincompress=threshold=0.03:ratio=5:attack=50:release=600[duck];[duck][vo]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]" \
-            -map "[v]" -map "[a]" \
-            -c:v libx264 -preset veryfast -crf 23 \
-            -c:a aac -b:a 128k -ar 44100 \
-            -shortest video.mp4
+          # flv-te remux, jate stream-e encode na lage
+          ffmpeg -y -i video.mp4 -c copy video.flv
 
       - name: Stream to YouTube + Facebook
         env:
           STREAM_KEY: ${{ secrets.STREAM_KEY }}
           FB_STREAM_KEY: ${{ secrets.FB_STREAM_KEY }}
         run: |
-          END_TIME=$(( $(date +%s) + 340*60 ))
+          END_TIME=$(( JOB_START + 345*60 ))
           RECONNECT_COUNT=0
           MAX_RECONNECTS=20
 
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
-            ffmpeg -re -stream_loop -1 -i video.mp4 \
-              -c:v libx264 -preset veryfast -r 30 \
-              -b:v 3500k -maxrate 4500k -bufsize 7000k \
-              -g 60 -keyint_min 60 -pix_fmt yuv420p \
-              -c:a aac -b:a 128k -ar 44100 \
-              -map 0:v -map 0:a -flags +global_header \
-              -f tee "[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY|[f=flv:onfail=ignore]rtmps://live-api-s.facebook.com:443/rtmp/$FB_STREAM_KEY"
+            ffmpeg -re -stream_loop -1 -i video.flv \
+              -c copy -map 0:v -map 0:a \
+              -f tee "[f=flv:onfail=ignore]rtmp://a.rtmp.youtube.com/live2/$STREAM_KEY|[f=flv:onfail=ignore]rtmps://live-api-s.facebook.com:443/rtmp/$FB_STREAM_KEY" || true
 
             NOW=$(date +%s)
             if [ "$NOW" -ge "$END_TIME" ]; then
